@@ -1,1 +1,2 @@
 Nội dung file 1
+Thêm nội dung vào file1.txt
