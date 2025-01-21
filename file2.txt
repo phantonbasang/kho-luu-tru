@@ -1,2 +1,3 @@
 Nội dung file 2
 Thêm nội dung cho file2.txt nè
+Thêm nội dung khác cho file2.txt nè. Để xem 2 nhánh có lỗi k
