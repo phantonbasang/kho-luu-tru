@@ -1,1 +1,2 @@
 Nội dung file 2
+Thêm nội dung cho file2.txt nè
