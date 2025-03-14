@@ -1,0 +1,633 @@
+{% extends 'blog/main.html' %}
+
+{% block content %}
+
+<!-- Add notification container at the top -->
+<div id="notification" class="notification">
+    <span id="notification-message"></span>
+</div>
+
+<div class="header-bar">
+    <div>
+        <div class="user-info">
+            <h1>Hello {{ request.user|title }}</h1>
+            <form method="post" action="{% url 'logout' %}" style="display: inline;">
+                {% csrf_token %}
+                <button type="submit" class="logout-link">Logout</button>
+            </form>
+        </div>
+        <h3>You have <i>{{ count }} incomplete task{{ count|pluralize:'s' }}</i></h3>
+    </div>
+</div>
+
+<div id="search-add-wrapper">
+    <form action="" method="get">
+        <input type="text" name="search-area" placeholder="Search Tasks ">
+        <input class="button" type="submit" value="Search Task">
+    </form>
+    <a id="add-link" href="{% url 'task-create' %}">&#x2b;</a>
+</div>
+
+<div class="card-body">
+    <form id="bulk-action-form" method="post">
+        {% csrf_token %}
+        <div class="bulk-actions" style="display: none;">
+            <button type="button" class="button complete-selected" style="background-color: #4CAF50; color: white; padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Mark Complete</button>
+            <button type="button" class="button incomplete-selected" style="background-color: #FF9800; color: white; padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Mark Incomplete</button>
+            <button type="submit" class="button delete-selected" style="background-color: #f44336; color: white; padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Delete Selected</button>
+        </div>
+        
+        <div class="task-items-wrapper">
+            {% for tasks in task %}
+            <div class="task-wrapper">
+                <div class="task-left">
+                    <input type="checkbox" name="task_ids[]" value="{{ tasks.id }}" class="task-checkbox">
+                    <div class="task-content">
+                        {% if tasks.complete %}
+                        <div class="task-title">
+                            <div class="task-complete-icon"></div>
+                            <i><s><a href="{% url 'tasks-update' tasks.id %}">{{ tasks }}</a></s></i>
+                        </div>
+                        {% else %}
+                        <div class="task-title">
+                            <div class="task-incomplete-icon"></div>
+                            <a href="{% url 'tasks-update' tasks.id %}">{{ tasks }}</a>
+                        </div>
+                        {% endif %}
+                        
+                        <div class="task-buttons">
+                            <a href="{% url 'tasks-update' tasks.id %}" class="update-link">Update</a>
+                            <button type="button" class="view-details" data-task-id="{{ tasks.id }}">View</button>
+                        </div>
+
+                        {% if tasks.image %}
+                            <img src="{{ tasks.image.url }}" alt="{{ tasks.title }}" class="task-image">
+                        {% endif %}
+                        {% if tasks.link %}
+                            <a href="{{ tasks.link }}" target="_blank" class="task-link">Visit Link</a>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="task-actions">
+                    <a class="delete-link" href="{% url 'tasks-delete' tasks.id %}">&#215;</a>
+                </div>
+            </div>
+            {% empty %}
+            <h3>No items in list</h3>
+            <a href="{% url 'task-create' %}">Add New Item</a>
+            {% endfor %}
+        </div>
+
+        {% if is_paginated %}
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a href="?page=1{% if search_input %}&search-area={{ search_input }}{% endif %}" class="button">&laquo; First</a>
+                <a href="?page={{ page_obj.previous_page_number }}{% if search_input %}&search-area={{ search_input }}{% endif %}" class="button">Previous</a>
+            {% endif %}
+
+            <span class="current-page">
+                Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+            </span>
+
+            {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}{% if search_input %}&search-area={{ search_input }}{% endif %}" class="button">Next</a>
+                <a href="?page={{ page_obj.paginator.num_pages }}{% if search_input %}&search-area={{ search_input }}{% endif %}" class="button">Last &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    </form>
+</div>
+
+<!-- Modal cho task details -->
+<div id="taskModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle"></h2>
+            <span class="close">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div class="modal-description">
+                <h4>Description:</h4>
+                <p id="modalDescription"></p>
+            </div>
+            <div id="modalImageContainer" class="modal-image-container">
+                <!-- Hình ảnh sẽ được thêm vào đây qua JavaScript -->
+            </div>
+            <div class="modal-info">
+                <p id="modalStatus"></p>
+                <p id="modalDate"></p>
+                <div id="modalLinkContainer">
+                    <!-- Link sẽ được thêm vào đây qua JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add notification function
+    function showNotification(message) {
+        const notification = document.getElementById('notification');
+        const notificationMessage = document.getElementById('notification-message');
+        notificationMessage.textContent = message;
+        notification.classList.add('show');
+        
+        // Hide notification after 3 seconds
+        setTimeout(() => {
+            notification.classList.remove('show');
+        }, 3000);
+    }
+
+    // Check if there's a success message in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('updated')) {
+        showNotification('Task updated successfully!');
+    }
+
+    const checkboxes = document.querySelectorAll('.task-checkbox');
+    const bulkActions = document.querySelector('.bulk-actions');
+    const form = document.getElementById('bulk-action-form');
+    const modal = document.getElementById('taskModal');
+    const closeBtn = document.getElementsByClassName('close')[0];
+    
+    // Show/hide bulk actions based on checkbox selection
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const checkedBoxes = document.querySelectorAll('.task-checkbox:checked');
+            bulkActions.style.display = checkedBoxes.length > 0 ? 'block' : 'none';
+        });
+    });
+
+    // Handle bulk actions
+    document.querySelector('.complete-selected').addEventListener('click', function() {
+        performBulkAction('complete');
+    });
+
+    document.querySelector('.incomplete-selected').addEventListener('click', function() {
+        performBulkAction('incomplete');
+    });
+
+    document.querySelector('.delete-selected').addEventListener('click', function(e) {
+        e.preventDefault();
+        performBulkAction('delete');
+    });
+
+    // Handle task details view
+    document.querySelectorAll('.view-details').forEach(button => {
+        button.addEventListener('click', function() {
+            const taskId = this.getAttribute('data-task-id');
+            fetch(`/task/${taskId}/`)
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    
+                    // Cập nhật tiêu đề
+                    document.getElementById('modalTitle').textContent = 
+                        doc.querySelector('.task-title').textContent;
+                    
+                    // Cập nhật mô tả
+                    const description = doc.querySelector('.task-description').textContent;
+                    document.getElementById('modalDescription').textContent = 
+                        description || 'No description available';
+                    
+                    // Cập nhật trạng thái
+                    document.getElementById('modalStatus').textContent = 
+                        doc.querySelector('.task-status').textContent;
+                    
+                    // Cập nhật ngày
+                    document.getElementById('modalDate').textContent = 
+                        doc.querySelector('.task-date').textContent;
+                    
+                    // Xử lý hình ảnh
+                    const imageContainer = document.getElementById('modalImageContainer');
+                    imageContainer.innerHTML = ''; // Xóa ảnh cũ
+                    const taskImage = doc.querySelector('.task-detail-image');
+                    if (taskImage) {
+                        const img = document.createElement('img');
+                        img.src = taskImage.src;
+                        img.alt = taskImage.alt;
+                        imageContainer.appendChild(img);
+                    }
+                    
+                    // Xử lý link
+                    const linkContainer = document.getElementById('modalLinkContainer');
+                    linkContainer.innerHTML = ''; // Xóa link cũ
+                    const taskLink = doc.querySelector('.task-detail-link');
+                    if (taskLink) {
+                        const link = document.createElement('a');
+                        link.href = taskLink.href;
+                        link.textContent = 'Visit Link';
+                        link.target = '_blank';
+                        linkContainer.appendChild(link);
+                    }
+                    
+                    // Hiển thị modal
+                    document.getElementById('taskModal').style.display = 'block';
+                });
+        });
+    });
+
+    // Đóng modal
+    document.querySelector('.close').onclick = function() {
+        document.getElementById('taskModal').style.display = 'none';
+    }
+
+    // Đóng modal khi click bên ngoài
+    window.onclick = function(event) {
+        const modal = document.getElementById('taskModal');
+        if (event.target == modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    function performBulkAction(action) {
+        const formData = new FormData(form);
+        
+        if (action === 'delete') {
+            formData.append('action', 'delete');
+            fetch('{% url "bulk-delete" %}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    window.location.reload();
+                }
+            });
+        } else {
+            formData.append('action', action);
+            fetch('{% url "bulk-update" %}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    window.location.reload();
+                }
+            });
+        }
+    }
+
+    function handleLogout(event) {
+        event.preventDefault();
+        fetch('{% url "logout" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                window.location.href = '{% url "login" %}';
+            }
+        });
+    }
+});
+</script>
+
+<style>
+.pagination {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.pagination .button {
+    margin: 0 5px;
+    padding: 5px 10px;
+}
+
+.current-page {
+    margin: 0 10px;
+    font-weight: bold;
+}
+
+.task-checkbox {
+    margin-right: 10px;
+}
+
+.bulk-actions {
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+}
+
+.bulk-actions .button {
+    margin-right: 10px;
+    padding: 5px 10px;
+}
+
+.complete-selected {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.incomplete-selected {
+    background-color: #FFA500;
+    color: white;
+}
+
+.delete-selected {
+    background-color: #ff4444;
+    color: white;
+}
+
+.bulk-actions .button:hover {
+    opacity: 0.9;
+}
+
+.update-link {
+    text-decoration: none;
+    font-weight: 900;
+    color: #4CAF50;
+    font-size: 14px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    background-color: #e8f5e9;
+}
+
+.update-link:hover {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.task-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 150px;
+}
+
+.view-details {
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.view-details:hover {
+    background-color: #1976D2;
+}
+
+.delete-link {
+    text-decoration: none;
+    font-weight: 900;
+    color: #6249cf;
+    font-size: 22px;
+    line-height: 0;
+    padding: 20px 0px;
+}
+
+.delete-link:hover {
+    color: #ff4444;
+}
+
+/* Modal styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    overflow-y: auto;
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 0;
+    width: 90%;
+    max-width: 700px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.modal-header {
+    background: linear-gradient(90deg, #008cff 0%, #d469ff 43%, #ff00bf 100%);
+    color: white;
+    padding: 15px 20px;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.close {
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    padding: 0 5px;
+}
+
+.close:hover {
+    color: #ddd;
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.modal-description {
+    margin-bottom: 20px;
+}
+
+.modal-description h4 {
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.modal-description p {
+    color: #666;
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+
+.modal-image-container {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.modal-image-container img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.modal-info {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 6px;
+    margin-top: 20px;
+}
+
+.modal-info p {
+    margin: 10px 0;
+    color: #555;
+}
+
+#modalLinkContainer a {
+    display: inline-block;
+    padding: 8px 15px;
+    background-color: #2196F3;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+#modalLinkContainer a:hover {
+    background-color: #1976D2;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .modal-content {
+        margin: 10% auto;
+        width: 95%;
+    }
+    
+    .modal-header h2 {
+        font-size: 1.2rem;
+    }
+}
+
+/* Notification styles */
+.notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background-color: #4CAF50;
+    color: white;
+    padding: 15px 25px;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    transform: translateX(120%);
+    transition: transform 0.3s ease-in-out;
+    z-index: 1000;
+}
+
+.notification.show {
+    transform: translateX(0);
+}
+
+.notification span {
+    font-weight: 500;
+}
+
+.user-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.logout-link {
+    color: white;
+    text-decoration: none;
+    padding: 5px 15px;
+    border-radius: 4px;
+    background-color: rgba(255, 255, 255, 0.1);
+    transition: background-color 0.3s;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+}
+
+.logout-link:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.task-image {
+    max-width: 150px;
+    max-height: 150px;
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+.task-link {
+    display: inline-block;
+    padding: 5px 10px;
+    background-color: #2196F3;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    margin: 5px 0;
+}
+
+.task-link:hover {
+    background-color: #1976D2;
+}
+
+.task-wrapper {
+    display: flex;
+    justify-content: space-between;
+    background-color: #fff;
+    border-top: 1px solid #dfe4ea;
+    padding: 15px;
+}
+
+.task-left {
+    display: flex;
+    gap: 15px;
+    flex: 1;
+}
+
+.task-content {
+    flex: 1;
+}
+
+.task-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.task-buttons {
+    display: flex;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.task-complete-icon {
+    height: 20px;
+    width: 20px;
+    background-color: rgb(0, 255, 0);
+    border-radius: 50%;
+}
+
+.task-incomplete-icon {
+    height: 20px;
+    width: 20px;
+    background-color: rgb(160, 160, 160);
+    border-radius: 50%;
+}
+</style>
+
+{% endblock content %}

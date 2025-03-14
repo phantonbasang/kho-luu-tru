@@ -1,0 +1,44 @@
+{% extends 'blog/main.html' %}
+
+{% block content %}
+<div class="task-detail">
+    <div class="task-title">{{ task.title }}</div>
+    <div class="task-description">{{ task.description }}</div>
+    {% if task.image %}
+        <div class="task-image-container">
+            <img src="{{ task.image.url }}" alt="{{ task.title }}" class="task-detail-image">
+        </div>
+    {% endif %}
+    {% if task.link %}
+        <div class="task-link-container">
+            <a href="{{ task.link }}" target="_blank" class="task-detail-link">Visit Link</a>
+        </div>
+    {% endif %}
+    <div class="task-status">Status: {% if task.complete %}Completed{% else %}Incomplete{% endif %}</div>
+    <div class="task-date">Created: {{ task.created }}</div>
+</div>
+
+<style>
+.task-detail {
+    padding: 20px;
+}
+.task-detail-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    margin: 15px 0;
+}
+.task-detail-link {
+    display: inline-block;
+    padding: 8px 15px;
+    background-color: #2196F3;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    margin: 10px 0;
+}
+.task-detail-link:hover {
+    background-color: #1976D2;
+}
+</style>
+{% endblock content %}
